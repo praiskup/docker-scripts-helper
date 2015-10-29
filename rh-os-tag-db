@@ -1,0 +1,9 @@
+perl            OS              5.16
+python          OS              3.3
+python          OLD_RHSCL       2.7
+postgresql      OS              9.2
+ruby            OS              2.0
+php             OS              5.5
+mysql           OS              5.5
+mongodb         OS              2.4
+nodejs          OS              0.10

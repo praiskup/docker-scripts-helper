@@ -1,51 +1,112 @@
 #! /bin/sh
 
-project=$(basename "$(readlink -f ..)")
-project=${project##sti-}
-version=$(basename "$(readlink -f .)")
-version_no_dot=${version//\./}
-
-bz_component="rh-$project$version_no_dot-docker"
+srcdir=$(dirname "$0")
+dbfile="$srcdir/rh-os-tag-db"
 
 release=1
+
+get_names_from_db ()
+{
+    # BZ component prefix (not used newly)
+    gn_prefix=rh-
+
+    # BZ component suffix
+    gn_suffix="-docker"
+
+    # Name: sti-perl/perl
+    gn_name=$1
+
+    # RawName: perl
+    gn_rawname=${gn_name//sti-/}
+
+    # Version: 5.2, VersionNoDot: 52
+    gn_version=$2
+    gn_version_no_dot=${gn_version//./}
+
+    # Which namespace is used?
+    gn_namespace="rhscl"
+
+    while read repo namespace dbversion; do
+        if test "$gn_rawname" != "$repo" || test "$2" != "$dbversion"; then
+            continue
+        fi
+
+        case $namespace in
+            OS)
+                # Skip!
+                return 1
+                ;;
+            OLD_RHSCL)
+                gn_prefix=
+                break
+                ;;
+        esac
+
+        return 0
+    done < "$dbfile"
+
+    bzcomponent="$gn_prefix$gn_rawname$gn_version_no_dot$gn_suffix"
+    name="$gn_namespace/$gn_rawname-$gn_version_no_dot-rhel7"
+    return 0
+}
 
 print_labels ()
 {
 echo "# Labels consumed by Red Hat build service
-LABEL Name=\"rhscl/$project-$version_no_dot-rhel7\" \\
-      BZComponent=\"$bz_component\" \\
+LABEL Name=\"$name\" \\
+      BZComponent=\"$bzcomponent\" \\
       Version=\"$version\" \\
       Release=\"$release\" \\
       Architecture=\"x86_64\""
 }
 
-cp Dockerfile.rhel7{,~}
+fix_file ()
+{
+    fixing=$1
+    cp "$fixing"{,~}
+
+    print=:
+    while IFS=$nl read -r line; do
+        case $line in
+        *"Labels consumed by Red Hat"*)
+            print=false
+            ;;
+        *Release=*)
+            $print || {
+                rel=${line##*=}
+                eval set dummy "$rel"
+                release=$2
+            }
+            ;;
+        "")
+            $print || {
+                print=:
+                print_labels
+            }
+            ;;
+        esac
+        $print && echo "$line"
+    done < "$fixing~" > "$fixing"
+    rm -rf "$fixing~"
+}
 
 nl='
 '
 
+if test "$#" -lt 3; then
+    echo >&2 "set three arguments: project version Dockerfile, e.g.:"
+    echo >&2 "rh-os-label-generator postgresql 9.4 Dockerfile"
+    exit 1
+fi
 
-print=:
-while IFS=$nl read -r line; do
-    case $line in
-    *"Labels consumed by Red Hat"*)
-        print=false
-        ;;
-    *Release=*)
-        $print || {
-            rel=${line##*=}
-            eval set dummy "$rel"
-            release=$2
-        }
-        ;;
-    "")
-        $print || {
-            print=:
-            print_labels
-        }
-        ;;
-    esac
+project=$1
+version=$2
+dockerfile=$3
 
-    $print && echo "$line"
-done < Dockerfile.rhel7~ > Dockerfile.rhel7
-rm -rf Dockerfile.rhel7~
+get_names_from_db "$project" "$version" || {
+    echo "SKIP $project $version"
+    exit 1
+}
+
+echo "FIX  $project $version"
+fix_file "$dockerfile"
