@@ -1,0 +1,51 @@
+#! /bin/sh
+
+project=$(basename "$(readlink -f ..)")
+project=${project##sti-}
+version=$(basename "$(readlink -f .)")
+version_no_dot=${version//\./}
+
+bz_component="rh-$project$version_no_dot-docker"
+
+release=1
+
+print_labels ()
+{
+echo "# Labels consumed by Red Hat build service
+LABEL Name=\"rhscl/$project-$version_no_dot-rhel7\" \\
+      BZComponent=\"$bz_component\" \\
+      Version=\"$version\" \\
+      Release=\"$release\" \\
+      Architecture=\"x86_64\""
+}
+
+cp Dockerfile.rhel7{,~}
+
+nl='
+'
+
+
+print=:
+while IFS=$nl read -r line; do
+    case $line in
+    *"Labels consumed by Red Hat"*)
+        print=false
+        ;;
+    *Release=*)
+        $print || {
+            rel=${line##*=}
+            eval set dummy "$rel"
+            release=$2
+        }
+        ;;
+    "")
+        $print || {
+            print=:
+            print_labels
+        }
+        ;;
+    esac
+
+    $print && echo "$line"
+done < Dockerfile.rhel7~ > Dockerfile.rhel7
+rm -rf Dockerfile.rhel7~
